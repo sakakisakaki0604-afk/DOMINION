@@ -11,7 +11,7 @@ export const SRC = {
 };
 
 export const CARDS = {};
-const def = (id, name_en, name_ja, cost, types, summary_ja, effect = null, extra = {}) => {
+export const def = (id, name_en, name_ja, cost, types, summary_ja, effect = null, extra = {}) => {
   CARDS[name_en] = { id, name: name_en, name_ja, cost, types, summary_ja, effect, ...extra };
 };
 
@@ -21,6 +21,8 @@ const A = 'Action', T = 'Treasure', V = 'Victory', AT = 'Attack', R = 'Reaction'
 def('base_copper', 'Copper', '銅貨', 0, [T], '+1コイン', null, { coins: 1, set: 'basic' });
 def('base_silver', 'Silver', '銀貨', 3, [T], '+2コイン', null, { coins: 2, set: 'basic' });
 def('base_gold', 'Gold', '金貨', 6, [T], '+3コイン', null, { coins: 3, set: 'basic' });
+def('base_platinum', 'Platinum', '白金貨', 9, [T], '+5コイン', null, { coins: 5, set: 'basic' });
+def('base_colony', 'Colony', '植民地', 11, [V], '10勝利点', null, { vp: () => 10, set: 'basic' });
 def('base_estate', 'Estate', '屋敷', 2, [V], '1勝利点', null, { vp: () => 1, set: 'basic' });
 def('base_duchy', 'Duchy', '公領', 5, [V], '3勝利点', null, { vp: () => 3, set: 'basic' });
 def('base_province', 'Province', '属州', 8, [V], '6勝利点', null, { vp: () => 6, set: 'basic' });
@@ -479,9 +481,10 @@ def('int2_nobles', 'Nobles', '貴族', 6, [A, V], '次から1つ選ぶ：+3カ�
   if (o === 'card') g.draw(p, 3); else g.t.actions += 2;
 }, { set: 'intrigue', vp: () => 2 });
 
-export const SETS = {
-  base: { name_ja: '基本セット 第2版', cards: Object.values(CARDS).filter((c) => c.set === 'base').map((c) => c.name) },
-  intrigue: { name_ja: '陰謀 第2版', cards: Object.values(CARDS).filter((c) => c.set === 'intrigue').map((c) => c.name) },
-};
-
-export const KINGDOM_COUNT = Object.values(CARDS).filter((c) => c.set === 'base' || c.set === 'intrigue').length;
+export const SETS = {};
+export function registerSet(id, name_ja) {
+  SETS[id] = { name_ja, cards: Object.values(CARDS).filter((c) => c.set === id).map((c) => c.name) };
+}
+registerSet('base', '基本セット 第2版');
+registerSet('intrigue', '陰謀 第2版');
+export const kingdomCount = () => Object.values(CARDS).filter((c) => c.set !== 'basic').length;

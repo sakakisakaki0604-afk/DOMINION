@@ -2,8 +2,8 @@
 // ルール上の合法性は engine.respond() が最終検証するため、不正な応答は legalFallback で補正する。
 import { CARDS } from './cards.js';
 
-const NONTERM = new Set(['Village', 'Festival', 'Market', 'Laboratory', 'Merchant', 'Sentry', 'Harbinger', 'Cellar', 'Poacher', 'Upgrade', 'Pawn', 'Lurker', 'Wishing Well', 'Shanty Town', 'Mining Village', 'Secret Passage', 'Mill', 'Minion', 'Nobles', 'Conspirator', 'Diplomat', 'Vassal']);
-const APPETITE = { Laboratory: 9, Witch: 10, Festival: 7, Market: 7, Merchant: 6, Sentry: 7, Artisan: 6, Minion: 6, Torturer: 7, Smithy: 7, Militia: 6, 'Council Room': 6, Bandit: 5, Library: 6, Courtyard: 6, Patrol: 6, Pawn: 4, Village: 4, Upgrade: 6, Ironworks: 5, Courtier: 5, Replace: 5, Swindler: 5, Masquerade: 3, 'Wishing Well': 5, Steward: 5, Diplomat: 4, Moneylender: 4, Poacher: 4, Harbinger: 4, Vassal: 3, Cellar: 3, Moat: 4, Bureaucrat: 4, Mine: 4, 'Trading Post': 4, 'Mining Village': 4, 'Secret Passage': 3, Bridge: 4, Conspirator: 3, Mill: 2, Baron: 3, Lurker: 3, 'Shanty Town': 3, Remodel: 3, 'Throne Room': 2, Workshop: 2, Chapel: 0, Nobles: 3 };
+const NONTERM = new Set(['Village', 'Festival', 'Market', 'Laboratory', 'Merchant', 'Sentry', 'Harbinger', 'Cellar', 'Poacher', 'Upgrade', 'Pawn', 'Lurker', 'Wishing Well', 'Shanty Town', 'Mining Village', 'Secret Passage', 'Mill', 'Minion', 'Nobles', 'Conspirator', 'Diplomat', 'Vassal', 'Bazaar', 'Caravan', 'Fishing Village', 'Haven', 'Lighthouse', 'Lookout', 'Native Village', 'Sea Chart', 'Treasury', 'Warehouse', 'Tide Pools', 'City', 'Grand Market', 'Peddler', "Worker's Village", 'Wharf']);
+const APPETITE = { Laboratory: 9, Witch: 10, Festival: 7, Market: 7, Merchant: 6, Sentry: 7, Artisan: 6, Minion: 6, Torturer: 7, Smithy: 7, Militia: 6, 'Council Room': 6, Bandit: 5, Library: 6, Courtyard: 6, Patrol: 6, Pawn: 4, Village: 4, Upgrade: 6, Ironworks: 5, Courtier: 5, Replace: 5, Swindler: 5, Masquerade: 3, 'Wishing Well': 5, Steward: 5, Diplomat: 4, Moneylender: 4, Poacher: 4, Harbinger: 4, Vassal: 3, Cellar: 3, Moat: 4, Bureaucrat: 4, Mine: 4, 'Trading Post': 4, 'Mining Village': 4, 'Secret Passage': 3, Bridge: 4, Conspirator: 3, Mill: 2, Baron: 3, Lurker: 3, 'Shanty Town': 3, Remodel: 3, 'Throne Room': 2, Workshop: 2, Chapel: 0, Nobles: 3, Bazaar: 7, Caravan: 6, 'Fishing Village': 5, Haven: 3, Lighthouse: 5, Lookout: 3, 'Merchant Ship': 6, 'Native Village': 4, 'Sea Chart': 3, Treasury: 5, Warehouse: 5, Wharf: 7, 'Sea Witch': 10, Cutpurse: 4, Corsair: 5, Blockade: 4, Tactician: 3, 'Tide Pools': 4, Salvager: 3, Smugglers: 3, Pirate: 3, Sailor: 4, Outpost: 3, Monkey: 3, Island: 2, 'Treasure Map': 1, Astrolabe: 5, City: 6, 'Grand Market': 8, Peddler: 5, "Worker's Village": 6, Watchtower: 4, Monument: 4, Bishop: 5, Magnate: 3, Vault: 5, Clerk: 5, Charlatan: 6, Rabble: 7, Mint: 3, 'War Chest': 4, Expand: 4, Forge: 3, "King's Court": 6, Bank: 6, Collection: 4, Hoard: 5, 'Crystal Ball': 4, Investment: 3, Quarry: 3, Tiara: 4, Anvil: 3, Anvil_: 0 };
 
 const keepVal = (name) => {
   const d = CARDS[name];
@@ -38,10 +38,10 @@ function chooseBuy(g, p) {
   let best = null, bs = 0;
   for (const n of g.kingdom) {
     const d = CARDS[n];
-    if (!afford(n) || !d.types.includes('Action')) continue;
+    if (!afford(n) || !(d.types.includes('Action') || d.types.includes('Treasure'))) continue;
     const ap = APPETITE[n] || 0;
     if (ap <= 0) continue;
-    const term = !NONTERM.has(n);
+    const term = d.types.includes('Action') && !NONTERM.has(n);
     if (term && info.terms >= maxTerm) continue;
     if (!term && n === 'Village' && info.terms < 2) continue;
     const owned = info.count(n);
@@ -60,7 +60,7 @@ function turnAnswer(g, req) {
   const p = me(g, req), t = g.t;
   if (t.phase === 'action' && t.actions > 0) {
     const acts = p.hand.filter((c) => isType(c.name, 'Action'));
-    const playable = acts.filter((c) => !(c.name === 'Throne Room' && acts.length < 2) && !(c.name === 'Chapel'));
+    const playable = acts.filter((c) => !((c.name === 'Throne Room' || c.name === "King's Court") && acts.length < 2) && !(c.name === 'Chapel'));
     playable.sort((a, b) => {
       const na = NONTERM.has(a.name) ? 1 : 0, nb = NONTERM.has(b.name) ? 1 : 0;
       if (na !== nb) return nb - na;

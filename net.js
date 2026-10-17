@@ -95,9 +95,9 @@ export class OnlineSession {
     return this.code;
   }
   attach() {
-    this.listen('meta', async (m) => {
+    this.listen("meta", async (m) => {
       this.meta = m; this.emit();
-      if (this.isHost && m && m.status === 'playing' && !this.game && !this.starting) await this.hostResume();
+      if (this.isHost && m && m.status === 'playing' && !this.game && !this.starting) { try { await this.hostResume(); } catch (e) { console.error('hostResume failed', e); this.starting = false; } }
     });
     this.listen('public', (v) => { this.view = normPublic(v); this.emit(); });
     this.listen(`hands/${this.fb.uid}`, (v) => { this.privView = normPriv(v); this.emit(); });
