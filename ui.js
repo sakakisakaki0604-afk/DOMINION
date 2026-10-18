@@ -1,3 +1,4 @@
+import { artUrl } from './art.js';
 import { CARDS, SETS, SRC, kingdomCount } from './cards.js';
 import { randomKingdom } from './engine.js';
 import { LocalSession } from './local.js';
@@ -8,7 +9,7 @@ const $app = document.getElementById('app');
 const $modal = document.getElementById('modal');
 const $toast = document.getElementById('toast');
 const TY = { Action: 'アクション', Treasure: '財宝', Victory: '勝利点', Curse: '呪い', Attack: 'アタック', Reaction: 'リアクション', Duration: '持続' };
-const SETNAME = { basic: '基本カード', base: '基本セット 第2版', intrigue: '陰謀 第2版', seaside: '海辺 第2版', prosperity: '繁栄 第2版' };
+const SETNAME = { basic: '基本カード', base: '基本セット 第2版', intrigue: '陰謀 第2版', seaside: '海辺 第2版', prosperity: '繁栄 第2版', alchemy: '錬金術', cornucopia: '収穫祭（一部）', guilds: 'ギルド（一部）', hinterlands: '異郷（一部）' };
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } };
@@ -16,7 +17,7 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 
 const S = {
   screen: 'title', name: lsGet('dom_name', ''), session: null, online: false, err: '',
-  setup: { bots: 1, mode: 'random', sets: { base: true, intrigue: true, seaside: true, prosperity: true }, manual: [] },
+  setup: { bots: 1, mode: 'random', sets: { base: true, intrigue: true, seaside: true, prosperity: true, alchemy: true, cornucopia: true, guilds: true, hinterlands: true }, manual: [] },
   sel: new Set(), selSeq: -1, sentSeq: -1, joinCode: '',
 };
 
@@ -35,17 +36,19 @@ function typeClass(d) {
 }
 function cardHtml(name, o = {}) {
   const d = CARDS[name];
+  const art = artUrl(name);
   const cost = o.cost != null ? o.cost : d.cost;
-  const cls = ['card', typeClass(d), d.types.includes('Attack') ? 'attack' : '', d.types.includes('Duration') ? 'dur' : '', o.cls || ''].join(' ');
-  return `<div class="${cls}" data-name="${esc(name)}" ${o.id != null ? `data-id="${o.id}"` : ''} ${o.act ? `data-act="${o.act}"` : ''} title="${esc(d.name_ja + '：' + d.summary_ja)}">
-    <span class="cost">${cost}</span><b class="nm">${esc(d.name_ja)}</b>
+  const cls = ['card', typeClass(d), d.types.includes('Attack') ? 'attack' : '', d.types.includes('Duration') ? 'dur' : '', o.cls || '', art ? 'art' : ''].join(' ');
+  return `<div class="${cls}" ${art ? `style="--art:url('${art}')"` : ''} data-name="${esc(name)}" ${o.id != null ? `data-id="${o.id}"` : ''} ${o.act ? `data-act="${o.act}"` : ''} title="${esc(d.name_ja + '：' + d.summary_ja)}">
+    <span class="cost">${cost}${d.potion ? 'P' : ''}</span><b class="nm">${esc(d.name_ja)}</b>
     <i class="ty">${d.types.map((t) => TY[t]).join('・')}</i><p class="sm">${esc(d.summary_ja)}</p>
-    ${o.count != null ? `<span class="cnt">${o.count}</span>` : ''}<button class="info" data-info="${esc(name)}" aria-label="詳細">i</button></div>`;
+    ${o.count != null ? `<span class="cnt">${o.count}</span>` : ''}${o.tag ? `<span class="tag">${o.tag}</span>` : ''}<button class="info" data-info="${esc(name)}" aria-label="詳細">i</button></div>`;
 }
 function showCardModal(name) {
   const d = CARDS[name];
   $modal.hidden = false;
   $modal.innerHTML = `<div class="dlg"><h2>${esc(d.name_ja)} <span class="mute">${esc(d.name_en || d.name)}</span></h2>
+  ${artUrl(name) ? `<img class="bigart" src="${artUrl(name)}" alt="">` : ''}
   <p>コスト：<b>${d.cost}</b>　タイプ：${d.types.map((t) => TY[t]).join(' / ')}　収録：${SETNAME[d.set]}</p>
   <p>${esc(d.summary_ja)}</p>
   <p class="mute">カードID：${d.id}<br>確度：<span class="badge warn">${SRC.confidence}</span>（${esc(SRC.note)}）<br>確認日：${SRC.checked_at}／根拠種別：${SRC.evidence_type}</p>
@@ -144,20 +147,20 @@ function gameScreen() {
   if (!v) return `<div class="wrap"><p>ゲームを読み込み中…</p>${ss.isHost ? '' : ''}</div>`;
   const req = pv && pv.req;
   if (pv && S.selSeq !== pv.seq) { S.sel = new Set(); S.selSeq = pv.seq; }
-  const myTurn = v.cur === me;
+  const myTurn = v.cur === me || !!(pv && pv.possessing);
   const t = v.t;
     const curP = v.players.find((p) => p.id === v.cur);
-  const mine = v.players.find((p) => p.id === me);
+  const mine = (pv && pv.possessing ? v.players.find((p) => p.id === v.cur) : null) || v.players.find((p) => p.id === me);
   const turnReq = req && req.kind === 'turn';
   const sent = pv && S.sentSeq === pv.seq;
 
-  const canBuy = (n, count, cost) => turnReq && t && !sent && count > 0 && t.buys > 0 && t.coins >= cost && !(n === 'Grand Market' && mine.play.includes('Copper'));
+  const canBuy = (n, count, cost, ok) => turnReq && t && !sent && count > 0 && !!ok;
   const pileReq = req && req.kind === 'pile';
   const sup = (list) => list.map((s) => {
     let cls = s.count === 0 ? 'empty' : '', act = '';
-    if (canBuy(s.name, s.count, s.cost)) { cls += ' clickable ok'; act = 'buy'; }
+    if (canBuy(s.name, s.count, s.cost, s.buy)) { cls += ' clickable ok'; act = 'buy'; }
     if (pileReq && req.piles.includes(s.name) && !sent) { cls += ' clickable ' + (S.sel.has(s.name) ? 'sel' : 'ok'); act = 'pile'; }
-    return cardHtml(s.name, { count: s.count, cost: s.cost, cls, act });
+    return cardHtml(s.name, { count: s.count, cost: s.cost, cls: cls + (v.bane === s.name ? ' bane' : ''), act, tag: v.bane === s.name ? '災い' : '' });
   }).join('');
   const basics = v.supply.filter((s) => CARDS[s.name].set === 'basic');
   const kingdom = v.supply.filter((s) => CARDS[s.name].set !== 'basic');
@@ -183,6 +186,7 @@ function gameScreen() {
       <div class="mute" style="margin-bottom:8px">手札のカードをタップしてプレイ／緑枠のサプライをタップして購入</div>
       <div class="row">
       ${anyT ? '<button data-send="allTreasures">財宝をすべてプレイ</button>' : ''}
+      ${mine.coffers > 0 ? `<button class="sec" data-coffers="1">コッファー1つ使う</button>${mine.coffers > 1 ? `<button class="sec" data-coffers="${mine.coffers}">コッファーを全て使う(${mine.coffers})</button>` : ''}` : ''}
       ${t.phase === 'action' ? '<button class="sec" data-send="endActions">購入フェーズへ</button>' : ''}
       <button class="sec" data-send="end">ターン終了</button></div></div>`;
   } else if (req) {
@@ -212,13 +216,13 @@ function gameScreen() {
   const results = v.over ? resultsHtml(v) : '';
   const opps = v.players.filter((p) => p.id !== me).map((p) => `<div class="oppc ${p.id === v.cur && !v.over ? 'cur' : ''}">
     <b>${esc(p.name)}</b>${p.bot ? ' <span class="badge">BOT</span>' : ''} <span class="mute">ターン${p.turns}</span>
-    <div class="mute">手札${p.hand}　山札${p.deck}　捨て札${p.discard.length}${ss.isHost && !p.bot && ss.game ? ` <button class="sec" style="padding:2px 8px;font-size:11px" data-botify="${esc(p.id)}">ボットに交代</button>` : ''}</div>
+    <div class="mute">手札${p.hand}　山札${p.deck}　捨て札${p.discard.length}${p.coffers ? `　コッファー${p.coffers}` : ''}${ss.isHost && !p.bot && ss.game ? ` <button class="sec" style="padding:2px 8px;font-size:11px" data-botify="${esc(p.id)}">ボットに交代</button>` : ''}</div>
     ${p.vp ? `<div class="mute">勝利点トークン ${p.vp}</div>` : ''}${p.island.length ? `<div class="mute">島マット：${esc(p.island.map((n) => CARDS[n].name_ja).join('、'))}</div>` : ''}${p.native ? `<div class="mute">原住民の村マット：${p.native}枚</div>` : ''}${p.hold ? `<div class="mute">脇に置いたカード：${p.hold}枚</div>` : ''}
     <div class="mini">${p.play.map((n) => `<span>${esc(CARDS[n].name_ja)}${p.dur.includes(n) ? '（持続）' : ''}</span>`).join('')}</div></div>`).join('');
 
   return `<div class="hud">
-    <span class="turnflag ${myTurn ? 'me' : ''}">${v.over ? 'ゲーム終了' : myTurn ? 'あなたの番' : esc(curP.name) + 'の番'}</span>
-    ${t && !v.over ? `<div class="res"><span class="pill">アクション <b>${t.actions}</b></span><span class="pill">購入 <b>${t.buys}</b></span><span class="pill">コイン <b>${t.coins}</b></span></div>` : ''}
+    <span class="turnflag ${myTurn ? 'me' : ''}">${v.over ? 'ゲーム終了' : pv && pv.possessing ? esc(curP.name) + 'を憑依中（あなたが操作）' : myTurn ? 'あなたの番' : esc(curP.name) + 'の番'}</span>
+    ${t && !v.over ? `<div class="res"><span class="pill">アクション <b>${t.actions}</b></span><span class="pill">購入 <b>${t.buys}</b></span><span class="pill">コイン <b>${t.coins}</b></span>${t.potions ? `<span class="pill">ポーション <b>${t.potions}</b></span>` : ''}${mine.coffers ? `<span class="pill">コッファー <b>${mine.coffers}</b></span>` : ''}</div>` : ''}
     <span class="mute">${ss.code ? '部屋 ' + esc(ss.code) : ''}</span>
     <span style="flex:1"></span>
     ${ss.speed ? `<button class="sec" data-go="speed">速度 ×${ss.speed}</button>` : ''}
@@ -351,6 +355,7 @@ document.addEventListener('click', (e) => {
   const bf = t.closest('[data-botify]'); if (bf) { if (confirm('このプレイヤーをボットに交代させますか？')) S.session.replaceWithBot(bf.dataset.botify); return; }
   if (t.closest('[data-trash]')) { listModal('廃棄置き場', S.session.view.trash); return; }
   const dc = t.closest('[data-discard]'); if (dc) { e.preventDefault(); const v = S.session.view; listModal('あなたの捨て札', v.players.find((p) => p.id === S.session.me).discard); return; }
+  const cf = t.closest('[data-coffers]'); if (cf) { send({ t: 'coffers', n: +cf.dataset.coffers }); return; }
   const sn = t.closest('[data-send]'); if (sn) {
     const k2 = sn.dataset.send; send({ t: k2 }); return;
   }

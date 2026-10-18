@@ -7,6 +7,11 @@
 import { CARDS } from './cards.js';
 import './seaside.js';
 import './prosperity.js';
+import './alchemy.js';
+import './cornucopia.js';
+import './guilds.js';
+import './hinterlands.js';
+import './hinterlands.js';
 
 export function mulberry32(a) {
   return function () {
@@ -34,6 +39,7 @@ export class Game {
     this.trashPile = [];
     this.pendingGains = [];
     this.isExtra = false;
+    this.poss = null; this.possLeft = 0;
     this.depth = 0;
     this.setup();
     this.gen = this.main();
@@ -82,12 +88,16 @@ export class Game {
   playerById(id) { return this.players.find((p) => p.id === id); }
 
   // ---------- セットアップ ----------
+  canAfford(name) {
+    const d = CARDS[name], t = this.t;
+    return !!t && this.supply[name] && this.supply[name].length > 0 && t.coins >= this.cost(d) && (t.potions || 0) >= (d.potion || 0);
+  }
   setup() {
     const n = this.cfg.players.length;
     this.players = this.cfg.players.map((pl) => ({
       id: pl.id, name: pl.name, bot: !!pl.bot, turns: 0, vp: 0,
       deck: [], hand: [], discard: [], play: [], aside: [], hold: [], island: [], native: [],
-      durations: [], lastGains: [], gainsNow: [],
+      durations: [], lastGains: [], gainsNow: [], coffers: 0,
     }));
     const vic = n <= 2 ? 8 : 12;
     const piles = {};
@@ -104,8 +114,17 @@ export class Game {
     add('Estate', vic); add('Duchy', vic); add('Province', vic);
     if (this.colony) add('Colony', vic);
     add('Curse', (n - 1) * 10);
+    if (kingdom.some((k) => CARDS[k].potion)) add('Potion', 16);
     for (const k of kingdom) add(k, CARDS[k].types.includes('Victory') ? vic : 10);
+    // 若き魔女：コスト2〜3の王国カードを1山追加し、それを災い(Bane)とする
+    this.bane = null;
+    if (kingdom.includes('Young Witch')) {
+      const elig = Object.keys(CARDS).filter((nme) => { const d = CARDS[nme]; return d.set && d.set !== 'basic' && (d.cost === 2 || d.cost === 3) && !d.potion && d.types.includes('Action') && !d.types.includes('Victory') && !kingdom.includes(nme) && !d.noBane; }).sort();
+      this.bane = this.cfg.bane || elig[Math.floor(this.rng() * elig.length)];
+      add(this.bane, 10);
+    }
     this.supply = piles; this.pileOrder = order; this.kingdom = kingdom;
+    if (kingdom.includes('Baker')) for (const p of this.players) p.coffers = 1;
     for (const p of this.players) {
       for (let i = 0; i < 7; i++) p.deck.push(piles.Copper.pop());
       for (let i = 0; i < 3; i++) p.deck.push(piles.Estate.pop());
@@ -113,7 +132,7 @@ export class Game {
     }
     this.cur = this.cfg.first != null ? this.cfg.first : Math.floor(this.rng() * n);
     for (const p of this.players) this.draw(p, 5);
-    this.say(`ゲーム開始。先手は${this.players[this.cur].name}${this.colony ? '（白金貨・植民地あり）' : ''}`);
+    this.say(`ゲーム開始。先手は${this.players[this.cur].name}${this.colony ? '（白金貨・植民地あり）' : ''}${this.bane ? `（災い：${CARDS[this.bane].name_ja}）` : ''}`);
   }
 
   // ---------- 領域操作（カードは常に1つの領域だけに存在） ----------
@@ -125,7 +144,7 @@ export class Game {
   zoneOf(p, c) { for (const z of ZONES) if (p[z].includes(c)) return z; return null; }
   moveTo(p, c, zone) { this.removeAny(p, c); p[zone].push(c); return c; }
   discard(p, c) { this.moveTo(p, c, 'discard'); }
-  trash(p, c) { this.removeAny(p, c); this.trashPile.push(c); this.say(`${p.name}は${this.nm(c)}を廃棄した`); }
+  trash(p, c) { this.removeAny(p, c); this.trashPile.push(c); if (this.poss && p === this.poss.victim) this.poss.trashed.push(c); this.say(`${p.name}は${this.nm(c)}を廃棄した`); }
   takeTop(p) {
     if (!p.deck.length && p.discard.length) {
       p.deck = this.shuffle(p.discard); p.discard = [];
@@ -140,6 +159,7 @@ export class Game {
     return k;
   }
   gain(p, name, dest = 'discard', opts = {}) {
+    if (this.poss && p === this.poss.victim && this.t) { p = this.poss.by; dest = 'discard'; }
     const pile = this.supply[name];
     if (!pile || !pile.length) { this.say(`${CARDS[name].name_ja}の山は空で獲得できない`); return null; }
     const c = pile.pop(); p[dest].push(c);
@@ -150,11 +170,13 @@ export class Game {
     this.pendingGains.push({ p, card: c, bought: !!opts.bought });
     return c;
   }
-  gainable(max, filter, exact) {
+  // potion: 比較対象のポーションコスト数。ポーションを含むコストのカードは、同じ数のポーションを含む比較でのみ対象になる
+  gainable(max, filter, exact, potion = 0) {
     return this.pileOrder.filter((n) => {
       if (!this.supply[n].length) return false;
       const c = this.cost(CARDS[n]);
-      if (exact ? c !== max : c > max) return false;
+      const pc = CARDS[n].potion || 0;
+      if (exact ? (c !== max || pc !== potion) : (c > max || pc > potion)) return false;
       return !filter || filter(CARDS[n]);
     });
   }
@@ -304,6 +326,7 @@ export class Game {
     let coins = d.coinsFn ? d.coinsFn(this, p, c) : (d.coins || 0);
     if (c.name === 'Curse' && this.curseTreasure) coins = 1;
     this.t.coins += coins;
+    this.t.potions += d.potions || 0;
     if (c.name === 'Silver' && !this.t.silverPlayed) { this.t.silverPlayed = true; this.t.coins += this.t.merchant; }
     if (d.effect) yield* d.effect(this, p, { card: c });
     if ((c.name === 'Silver' || c.name === 'Gold') && !this.t.corsairHit && this.others(p).some((q) => q.durations.some((e) => e.kind === 'corsair'))) {
@@ -315,6 +338,12 @@ export class Game {
   }
 
   // ---------- 入力の検証 ----------
+  canBuyNow(p, name) {
+    const t = this.t, pl = this.supply[name];
+    if (!t || !pl || !pl.length || t.buys < 1 || t.coins < this.cost(CARDS[name]) || t.potions < (CARDS[name].potion || 0)) return false;
+    if (name === 'Grand Market' && p.play.some((c) => c.name === 'Copper')) return false;
+    return true;
+  }
   legalTurn(p, a) {
     const t = this.t;
     if (!a || typeof a !== 'object') return false;
@@ -324,11 +353,9 @@ export class Game {
       case 'treasure': { const c = inHand(a.id); return !!c && this.isType(c, 'Treasure'); }
       case 'allTreasures': return p.hand.some((c) => this.isType(c, 'Treasure'));
       case 'buy': {
-        const pl = this.supply[a.pile];
-        if (!pl || !pl.length || t.buys < 1 || t.coins < this.cost(CARDS[a.pile])) return false;
-        if (a.pile === 'Grand Market' && p.play.some((c) => c.name === 'Copper')) return false;
-        return true;
+        return this.canBuyNow(p, a.pile);
       }
+      case 'coffers': return Number.isInteger(a.n) && a.n >= 1 && a.n <= p.coffers;
       case 'endActions': return t.phase === 'action';
       case 'end': return true;
       default: return false;
@@ -336,7 +363,7 @@ export class Game {
   }
   validate(req, ans) {
     switch (req.kind) {
-      case 'turn': return this.legalTurn(this.playerById(req.pid), ans);
+      case 'turn': return this.legalTurn(this.playerById(req.forPid || req.pid), ans);
       case 'cards': {
         if (!Array.isArray(ans)) return false;
         const ids = req.cards.map((c) => c.id);
@@ -362,7 +389,10 @@ export class Game {
   }
   advance(v) {
     const r = this.gen.next(v);
-    this.pending = r.done ? null : r.value;
+    const req = r.done ? null : r.value;
+    // 憑依中は、憑依されたプレイヤーの判断を憑依した側が行う
+    if (req && this.poss && req.pid === this.poss.victim.id) { req.forPid = req.pid; req.pid = this.poss.by.id; }
+    this.pending = req;
   }
   // 保存済みの入力列から再現
   replay(list) { for (const x of list) { const r = this.respond(x.pid, x.a); if (!r.ok) throw new Error('replay failed'); } }
@@ -371,7 +401,7 @@ export class Game {
   newTurn() {
     this.t = {
       phase: 'action', actions: 1, buys: 1, coins: 0, reduce: 0, merchant: 0, silverPlayed: false, actionsPlayed: 0,
-      boughtVictory: false, collection: 0, tiara: false, sailorLeft: 0, named: [], outpost: false, corsairHit: false,
+      boughtVictory: false, potions: 0, possessions: 0, collection: 0, tiara: false, sailorLeft: 0, named: [], outpost: false, corsairHit: false,
     };
   }
   *startTurn(p) {
@@ -395,8 +425,8 @@ export class Game {
   *main() {
     for (;;) {
       const p = this.players[this.cur];
-      this.newTurn(); p.turns += 1;
-      this.say(`── ${p.name}のターン（${p.turns}）${this.isExtra ? '※追加ターン' : ''} ──`);
+      this.newTurn(); if (!this.poss) p.turns += 1;
+      this.say(this.poss ? `── ${this.poss.by.name}に憑依された${p.name}のターン ──` : `── ${p.name}のターン（${p.turns}）${this.isExtra ? '※追加ターン' : ''} ──`);
       this.depth = 0;
       yield* this.startTurn(p);
       for (;;) {
@@ -406,6 +436,7 @@ export class Game {
         const a = yield { pid: p.id, kind: 'turn', prompt: '' };
         if (a.t === 'end') break;
         if (a.t === 'endActions') { t.phase = 'buy'; continue; }
+        if (a.t === 'coffers') { p.coffers -= a.n; t.coins += a.n; this.say(`${p.name}はコッファーを${a.n}使った（+${a.n}コイン）`); continue; }
         if (a.t === 'play') {
           const c = p.hand.find((x) => x.id === a.id);
           t.actions -= 1; this.depth = 0;
@@ -418,9 +449,15 @@ export class Game {
           for (const c of ts) { if (p.hand.includes(c)) yield* this.playTreasure(p, c); }
         } else if (a.t === 'buy') {
           t.phase = 'buy';
-          t.buys -= 1; t.coins -= this.cost(CARDS[a.pile]);
+          t.buys -= 1; t.coins -= this.cost(CARDS[a.pile]); t.potions -= CARDS[a.pile].potion || 0;
           const c = this.gain(p, a.pile, 'discard', { bought: true });
           if (c) this.say(`${p.name}は${CARDS[a.pile].name_ja}を購入`);
+          if (c) for (const k of p.play.filter((x) => x.name === 'Merchant Guild')) { void k; p.coffers += 1; this.say(`${p.name}は商人ギルドでコッファーを1得た`); }
+          const bd = CARDS[a.pile];
+          if (c && bd.overpay && t.coins > 0) {
+            const n = yield* this.chooseNumber(p, 0, t.coins, `${bd.name_ja}：超過払いする金額（0で払わない）`, 0);
+            if (n > 0) { t.coins -= n; this.say(`${p.name}は${n}コイン超過払いした`); yield* bd.overpay(this, p, n, c); }
+          }
           yield* this.flush();
         }
       }
@@ -429,23 +466,44 @@ export class Game {
       const keep = [], toDiscard = [];
       for (const c of p.play) (p.durations.some((e) => e.card === c) ? keep : toDiscard).push(c);
       // 先に領域を整合させてから選択を問う（途中状態でカードが重複しないようにする）
-      const rest = p.hand.concat(p.aside);
-      const tre = [];
-      p.hand = []; p.aside = []; p.play = keep;
-      for (const c of toDiscard) (c.name === 'Treasury' && !t.boughtVictory ? tre : p.discard).push(c);
-      for (const c of rest) p.discard.push(c);
-      p.aside = tre;
-      for (const c of tre.slice()) {
-        const ok = yield* this.yesNo(p, '国庫を捨て札にせず山札の上に置きますか？', true);
-        this.moveTo(p, c, ok ? 'deck' : 'discard');
+      p.aside = p.hand.concat(p.aside, toDiscard);
+      p.hand = []; p.play = keep;
+      for (const c of toDiscard.slice()) {
+        if (!p.aside.includes(c)) continue;
+        if (c.name === 'Treasury' && !t.boughtVictory) {
+          const ok = yield* this.yesNo(p, '国庫を捨て札にせず山札の上に置きますか？', true);
+          if (ok) this.moveTo(p, c, 'deck');
+        } else if (c.name === 'Alchemist' && toDiscard.some((x) => x.name === 'Potion')) {
+          const ok = yield* this.yesNo(p, '錬金術師を捨て札にせず山札の上に置きますか？', true);
+          if (ok) this.moveTo(p, c, 'deck');
+        } else if (c.name === 'Herbalist') {
+          const ts = toDiscard.filter((x) => p.aside.includes(x) && this.isType(x, 'Treasure'));
+          if (ts.length) {
+            const [x] = yield* this.chooseCards(p, ts, 0, 1, '薬草商：場の財宝1枚を山札の上に置く（任意）', 'topdeck');
+            if (x) this.moveTo(p, x, 'deck');
+          }
+        }
       }
+      for (const c of p.aside.slice()) this.moveTo(p, c, 'discard');
       p.lastGains = p.gainsNow; p.gainsNow = [];
-      const extra = t.outpost && !this.isExtra;
+      const wasPoss = !!this.poss;
+      const extra = !wasPoss && t.outpost && !this.isExtra;
+      const possN = wasPoss ? 0 : t.possessions;
       this.t = null;
+      if (wasPoss) { // 憑依ターン終了：廃棄されたカードは持ち主の捨て札へ戻る
+        for (const c of this.poss.trashed) { const i = this.trashPile.indexOf(c); if (i >= 0) { this.trashPile.splice(i, 1); p.discard.push(c); } }
+        this.say(`${p.name}の廃棄されたカードは捨て札に戻った`);
+      }
       yield* this.flush();
       this.draw(p, t.outpost ? 3 : 5);
       if (this.checkEnd()) { this.finish(); return; }
-      if (extra) { this.isExtra = true; } else { this.isExtra = false; this.cur = (this.cur + 1) % this.players.length; }
+      if (wasPoss) {
+        const by = this.poss.by; this.poss = null; this.isExtra = false;
+        if (this.possLeft > 0) { this.possLeft -= 1; this.poss = { victim: p, by, trashed: [] }; }
+      } else if (possN > 0) {
+        const v = this.leftOf(p); this.possLeft = possN - 1; this.isExtra = false;
+        this.cur = this.players.indexOf(v); this.poss = { victim: v, by: p, trashed: [] };
+      } else if (extra) { this.isExtra = true; } else { this.isExtra = false; this.cur = (this.cur + 1) % this.players.length; }
     }
   }
   checkEnd() {
@@ -489,16 +547,18 @@ export class Game {
       results: this.results,
       kingdom: this.kingdom,
       curseTreasure: this.curseTreasure,
-      supply: this.pileOrder.map((n) => ({ name: n, count: this.supply[n].length, cost: this.cost(CARDS[n]) })),
+      supply: this.pileOrder.map((n) => ({ name: n, count: this.supply[n].length, cost: this.cost(CARDS[n]), potion: CARDS[n].potion || 0 })),
+      poss: this.poss ? { victim: this.poss.victim.id, by: this.poss.by.id } : null,
       trash: this.trashPile.map((c) => c.name),
       players: this.players.map((p) => ({
-        id: p.id, name: p.name, bot: p.bot, turns: p.turns, vp: p.vp,
+        id: p.id, name: p.name, bot: p.bot, turns: p.turns, vp: p.vp, coffers: p.coffers,
         deck: p.deck.length, hand: p.hand.length, aside: p.aside.length, hold: p.hold.length, native: p.native.length,
         island: p.island.map((c) => c.name),
         discard: p.discard.map((c) => c.name), play: p.play.map((c) => c.name),
         dur: p.durations.map((e) => e.card.name),
       })),
       cur: cur.id,
+      bane: this.bane,
       t: this.t ? { ...this.t, named: this.t.named.slice() } : null,
       pending: pend ? { pid: pend.pid, kind: pend.kind, prompt: pend.prompt } : null,
       log: this.logLines.slice(-120),
@@ -510,7 +570,8 @@ export class Game {
     const pend = this.pending && this.pending.pid === pid ? this.pending : null;
     return {
       seq: this.answers.length,
-      hand: p.hand.map((c) => this.ref(c)),
+      hand: (pend && pend.forPid ? this.playerById(pend.forPid) : p).hand.map((c) => this.ref(c)),
+      possessing: !!(pend && pend.forPid),
       hold: p.hold.map((c) => c.name),
       native: p.native.map((c) => c.name),
       req: pend,

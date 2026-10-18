@@ -123,7 +123,7 @@ def('base2_remodel', 'Remodel', '改築', 4, [A], '手札1枚を廃棄する。�
   const [c] = yield* g.chooseCards(p, p.hand, 1, 1, '廃棄するカード', 'trash');
   const cost = g.cost(c);
   g.trash(p, c);
-  const n = yield* g.choosePile(p, g.gainable(cost + 2), `コスト${cost + 2}以下のカードを獲得`, 'gain');
+  const n = yield* g.choosePile(p, g.gainable(cost + 2, null, false, CARDS[c.name].potion || 0), `コスト${cost + 2}以下のカードを獲得`, 'gain');
   if (n) g.gain(p, n);
 }, { set: 'base' });
 
@@ -314,7 +314,7 @@ def('int2_swindler', 'Swindler', '詐欺師', 3, [A, AT], '+2コイン。他の�
     g.trash(v, c);
     const cost = g.cost(c);
     g.say(`${v.name}は山札の上の${g.nm(c)}を廃棄した`);
-    const names = g.pileNames().filter((n) => g.pile(n).length && g.cost(g.def(n)) === cost);
+    const names = g.pileNames().filter((n) => g.pile(n).length && g.cost(g.def(n)) === cost && (CARDS[n].potion || 0) === (CARDS[c.name].potion || 0));
     const n = yield* g.choosePile(p, names, `${v.name}に獲得させるコスト${cost}のカード`, 'swindle');
     if (n) g.gain(v, n);
   }
@@ -434,7 +434,7 @@ def('int2_replace', 'Replace', '取り替え', 5, [A, AT], '手札1枚を廃棄�
   const [c] = yield* g.chooseCards(p, p.hand, 1, 1, '廃棄する手札', 'trash');
   const cost = g.cost(c);
   g.trash(p, c);
-  const n = yield* g.choosePile(p, g.gainable(cost + 2), `コスト${cost + 2}以下のカードを獲得`, 'gain');
+  const n = yield* g.choosePile(p, g.gainable(cost + 2, null, false, CARDS[c.name].potion || 0), `コスト${cost + 2}以下のカードを獲得`, 'gain');
   if (!n) return;
   const d = g.defOf(n);
   const isAT = g.isType(d, A) || g.isType(d, T);
@@ -470,7 +470,7 @@ def('int2_upgrade', 'Upgrade', '改良', 5, [A], '+1カード +1アクション�
   const [c] = yield* g.chooseCards(p, p.hand, 1, 1, '廃棄する手札', 'trash');
   const cost = g.cost(c);
   g.trash(p, c);
-  const n = yield* g.choosePile(p, g.gainable(cost + 1, null, true), `コスト${cost + 1}ちょうどのカードを獲得`, 'gain');
+  const n = yield* g.choosePile(p, g.gainable(cost + 1, null, true, CARDS[c.name].potion || 0), `コスト${cost + 1}ちょうどのカードを獲得`, 'gain');
   if (n) g.gain(p, n);
 }, { set: 'intrigue' });
 
